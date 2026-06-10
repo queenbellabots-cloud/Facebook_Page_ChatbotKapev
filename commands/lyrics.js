@@ -1,5 +1,7 @@
 const axios = require('axios');
 
+const API_URL = 'https://api-library-kohi-production.up.railway.app/api/lyrics';
+
 module.exports = {
   name: 'lyrics',
   description: 'Searches and Fetches Song Lyrics.',
@@ -7,44 +9,46 @@ module.exports = {
   author: 'kohi',
 
   async execute(senderId, args, token, event, sendMessage) {
-    const query = args.join(' ');
+    const query = args.join(' ').trim();
     if (!query) return sendMessage(senderId, { text: '❌ Please provide a song name.' }, token);
 
     try {
-      const { data } = await axios.get(
-        `https://betadash-api-swordslush-production.up.railway.app/lyrics-finder?title=${encodeURIComponent(query)}`
-      );
+      const { data } = await axios.get(API_URL, {
+        params: { query },
+        timeout: 15000
+      });
 
-      if (!data || data.status !== 200 || !data.response) {
+      if (!data?.status || !data.data?.lyrics) {
         return sendMessage(senderId, { text: '⚠️ No lyrics found.' }, token);
       }
 
-      // Send song info card
+      const { title, artist, lyrics } = data.data;
+
       await sendMessage(senderId, {
         attachment: {
           type: 'template',
           payload: {
             template_type: 'generic',
-            elements: [
-              {
-                title: `🎧 • ${data.Title}`,
-                image_url: data.Thumbnail,
-                subtitle: `By ${data.author || 'Unknown'}`
-              }
-            ]
+            elements: [{
+              title: `🎧 • ${title}`,
+              subtitle: `By ${artist ?? 'Unknown'}`
+            }]
           }
         }
       }, token);
 
-      // Split long lyrics into chunks
-      const chunk = (str, size = 1900) => str.match(new RegExp(`.{1,${size}}`, 'gs')) ?? [];
-      for (const part of chunk(data.response)) {
+      const chunks = lyrics.match(/.{1,1900}/gs) ?? [];
+      for (const part of chunks) {
         await sendMessage(senderId, { text: part.trim() }, token);
       }
 
     } catch (err) {
-      console.error('Lyrics Error:', err);
-      sendMessage(senderId, { text: '❎ Failed to fetch lyrics. Try again later.' }, token);
+      const reason = err.response
+        ? `API error ${err.response.status}`
+        : err.message ?? 'Unknown error';
+
+      console.error(`[lyrics] Failed for sender ${senderId}: ${reason}`);
+      await sendMessage(senderId, { text: '❎ Failed to fetch lyrics. Try again later.' }, token);
     }
   }
 };
